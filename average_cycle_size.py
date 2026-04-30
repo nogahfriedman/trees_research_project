@@ -114,7 +114,53 @@ def wilsons_algorithm(n: int, adj: dict, rng: np.random.Generator) -> set:
         in_tree[path[-1]] = True   # the node already in tree
  
     return tree_edges
- 
+
+
+def prufer_sequence_algorithm(n: int, rng: np.random.Generator) -> set:
+    """
+    Generate a uniformly random spanning tree of K_n using Prüfer sequences.
+    
+    A Prüfer sequence is a sequence of n-2 integers in [0, n-1] that uniquely
+    encodes a labeled tree on n vertices. This algorithm:
+    1. Generates a random Prüfer sequence
+    2. Decodes it into a tree
+    
+    Returns
+    -------
+    tree_edges : set of frozenset({u, v}) pairs
+    """
+    if n == 1:
+        return set()
+    if n == 2:
+        return {frozenset({0, 1})}
+    
+    # Generate random Prüfer sequence of length n-2
+    prufer_seq = rng.integers(0, n, size=n - 2)
+    
+    # Decode Prüfer sequence to tree edges
+    # Count the degree of each vertex (degree = count in sequence + 1)
+    degree = np.ones(n, dtype=int)
+    degree += np.bincount(prufer_seq, minlength=n)
+    
+    tree_edges = set()
+    
+    # Decode the sequence
+    for vertex in prufer_seq:
+        # Find the smallest vertex with degree 1
+        for leaf in range(n):
+            if degree[leaf] == 1:
+                tree_edges.add(frozenset({leaf, vertex}))
+                degree[leaf] -= 1
+                degree[vertex] -= 1
+                break
+    
+    # Connect the last two vertices with degree 1
+    remaining = [i for i in range(n) if degree[i] == 1]
+    if len(remaining) == 2:
+        tree_edges.add(frozenset({remaining[0], remaining[1]}))
+    
+    return tree_edges
+
  
 # ──────────────────────────────────────────────
 # 3.  Fundamental cycle length via BFS on tree
@@ -161,6 +207,7 @@ def average_fundamental_cycle_length(
     M: np.ndarray,
     num_trials: int = 1000,
     seed: int = 42,
+    algorithm: str = "prufer",
 ) -> dict:
     """
     Estimate E[|fundamental cycle|] by Monte Carlo simulation.
@@ -170,6 +217,7 @@ def average_fundamental_cycle_length(
     M          : oriented vertex-edge incidence matrix of K_n
     num_trials : number of random spanning trees to sample
     seed       : RNG seed for reproducibility
+    algorithm  : "wilson" or "prufer" for spanning tree generation method
  
     Returns
     -------
@@ -181,7 +229,11 @@ def average_fundamental_cycle_length(
       'n_edges'       – number of edges in the graph
       'n_tree_edges'  – n-1 (edges per spanning tree)
       'n_non_tree'    – non-tree edges per trial = n_edges - (n-1)
+      'algorithm'     – which algorithm was used
     """
+    if algorithm not in ["wilson", "prufer"]:
+        raise ValueError("algorithm must be 'wilson' or 'prufer'")
+    
     rng = np.random.default_rng(seed)
  
     n, edges = parse_incidence_matrix(M)
@@ -191,8 +243,13 @@ def average_fundamental_cycle_length(
     all_lengths = []
  
     for _ in range(num_trials):
-        tree_edges = wilsons_algorithm(n, adj, rng)
- 
+        # Choose algorithm for generating spanning tree
+        if algorithm == "wilson":
+            tree_edges = wilsons_algorithm(n, adj, rng)
+        elif algorithm == "prufer":
+            tree_edges = prufer_sequence_algorithm(n, rng)
+        else:
+            raise ValueError("Invalid algorithm choice.")
         # Build tree adjacency list
         tree_adj = {i: [] for i in range(n)}
         for fe in tree_edges:
@@ -218,6 +275,7 @@ def average_fundamental_cycle_length(
         "n_edges":      len(edges),
         "n_tree_edges": n - 1,
         "n_non_tree":   len(edges) - (n - 1),
+        "algorithm":    algorithm,
     }
  
  
@@ -244,30 +302,51 @@ def build_kn_incidence_matrix(n: int) -> np.ndarray:
 # ──────────────────────────────────────────────
  
 if __name__ == "__main__":
-
- 
-    # Default: run K_4 through K_10 and show the trend
-    ns = list(range(4, 70))
-    num_trials = 2000
+    # Default: run K_4 through K_70 
+    ns = list(range(200,1000,100)))
+    num_trials = 1000
     seed = 13
-    if len(sys.argv) > 1:
-        ns = [int(x) for x in sys.argv[1:]]
- 
+    algorithm = "prufer"  # "wilson" or "prufer"
+    
+    # Parse command-line arguments
+    # Usage: python average_cycle_size.py [--algorithm {wilson|prufer}] [--num_trials N] [--seed S] [n1 n2 ...]
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == "--algorithm":
+            algorithm = sys.argv[i + 1]
+            i += 2
+        elif arg == "--num_trials":
+            num_trials = int(sys.argv[i + 1])
+            i += 2
+        elif arg == "--seed":
+            seed = int(sys.argv[i + 1])
+            i += 2
+        else:
+            # Assume remaining args are vertex counts
+            ns = [int(x) for x in sys.argv[i:]]
+            break
+    
+    print(f"Running with algorithm: {algorithm}, num_trials: {num_trials}, seed: {seed}")
+    
     # Write results to CSV file
-    with open(f'resuls _ns:{ns}_numtrials:{num_trials}_seed:{seed}.csv', 'w', newline='') as csvfile:
-        fieldnames = ['n', 'average_cycle_length', 'std_dev', 'num_trials']
+    filename = f'results_{algorithm}_ns-{min(ns)}-{max(ns)}_trials-{num_trials}_seed-{seed}_generating{algorithm}.csv'
+    with open(filename, 'w', newline='') as csvfile:
+        fieldnames = ['n', 'average_cycle_length', 'std_dev', 'num_trials', 'algorithm']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         
         writer.writeheader()
         
         for n in ns:
             M = build_kn_incidence_matrix(n)
-            result = average_fundamental_cycle_length(M, num_trials, seed)
+            result = average_fundamental_cycle_length(M, num_trials, seed, algorithm=algorithm)
             writer.writerow({
                 'n': n,
                 'average_cycle_length': f"{result['average']:.4f}",
                 'std_dev': f"{result['std']:.4f}",
-                'num_trials': num_trials
+                'num_trials': num_trials,
+                'algorithm': algorithm
             })
+            print(f"n={n}: average cycle length = {result['average']:.4f} (std: {result['std']:.4f})")
     
-    print("Results written to results.csv")
+    print(f"Results written to {filename}")
