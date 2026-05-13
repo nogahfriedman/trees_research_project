@@ -303,7 +303,7 @@ def build_kn_incidence_matrix(n: int) -> np.ndarray:
  
 if __name__ == "__main__":
     # Default: run K_4 through K_70 
-    ns = list(range(200,1000,100)))
+    ns = list(range(200,1001,100))
     num_trials = 1000
     seed = 13
     algorithm = "prufer"  # "wilson" or "prufer"

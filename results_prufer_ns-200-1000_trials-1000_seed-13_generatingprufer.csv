@@ -1,0 +1,5 @@
+n,average_cycle_length,std_dev,num_trials,algorithm
+200,17.5571,8.8007,1000,prufer
+300,21.5768,10.8841,1000,prufer
+400,24.7571,12.5185,1000,prufer
+500,27.7946,14.2319,1000,prufer
