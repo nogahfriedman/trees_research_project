@@ -102,6 +102,9 @@ def find_minimal_cycle_size(M, base: list[int], col: int) -> int:
     a = base_matrix.LUsolve(M[:, col])
     # return number of nonzeroes in a plus one (for the column itself)
     cycle_size = sum(1 for x in a if x != 0) + 1
+    for x in a:
+        if x != 0 and x != Rational(1) and x != Rational(-1):
+            print(f"nonzero entry in a: {x}")
     return cycle_size
 
 def find_average_cycle_size(M, base: list[int])-> float:
@@ -274,7 +277,6 @@ def stochastic_find_largest_avg_cycle_size_e(n: int, trials: int) -> tuple[list[
             avg_cycle_size = efficient_find_average_cycle_size_np(M_np, base, n_cols)
             
             if avg_cycle_size not in seen_avg_sizes:
-                readable_base = [faces[col] for col in base]  # convert to 1-indexed for readability
                 print(f"trial {i}: new avg cycle size {avg_cycle_size:.4f}")
                 seen_avg_sizes.add(avg_cycle_size)
             
@@ -289,11 +291,13 @@ def stochastic_find_largest_avg_cycle_size_e(n: int, trials: int) -> tuple[list[
                 print(f"passed trial {i}")
 
     readable_paths = [[faces[col] for col in base] for base in best_bases]
+    print(f"{len(seen_avg_sizes)} unique average cycle sizes found during search.")
     print(f"\nbest: {len(best_bases)} bases, avg cycle size {max_avg_cycle_size:.4f}")
     for base in readable_paths:
         print(f"Base: {base}")
     
     return best_bases, max_avg_cycle_size
+
 
 
 def efficient_find_average_cycle_size_np(M_np: np.ndarray, base: list[int], n_cols: int) -> float:
@@ -310,8 +314,17 @@ def efficient_find_average_cycle_size_np(M_np: np.ndarray, base: list[int], n_co
     return (int(np.sum(nonzero_counts)) + len(non_basic)) / len(non_basic)
 
 
+
+
+def readable_base_to_base(readable_base: list[tuple[int, int, int]], faces: list[tuple[int, int, int]]) -> list[int]:
+    return [faces.index(face) for face in readable_base]    
+    
+
 if __name__ == "__main__":
-    n= 8
+    n = 8
     stochastic_find_largest_avg_cycle_size_e(n, 1000000)
+    
+
+
     
     
