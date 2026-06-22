@@ -1,3 +1,4 @@
+import itertools
 from itertools import combinations  
 import networkx as nx
 from networkx.algorithms import isomorphism
@@ -6,10 +7,10 @@ from hopefully_fast import compute_score, create_2d_boundary_sparse
 from scipy.linalg import qr, solve_triangular
 from scipy.sparse import lil_matrix, csc_matrix
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 def calculate_degrees(n, base ) -> dict:
-    """Calculate the degree of each node in the base hypertree."""
+    """Calculate the degree of each edge in the base hypertree."""
     edges = combinations(range(n), 2)
     deg_dict = {edge: 0 for edge in edges}
     for face in base:
@@ -17,6 +18,13 @@ def calculate_degrees(n, base ) -> dict:
             deg_dict[edge] += 1
     return deg_dict
 
+def calculate_vertices_degrees(n, base)->dict:
+    """calculate degree for each vertex in the base hypertree"""
+    deg_dict = {i: 0 for i in range(n)}
+    for face in base:
+        for i in face:
+            deg_dict[i] += 1
+    return deg_dict
 
 
 def calculate_hypergraph_automorphism_order(num_vertices, hyperedges):
@@ -155,6 +163,80 @@ def analyze_base_orbits(n: int = 8, basis_indices: list[int] = None):
             print(f" * {name:20} -> {count_in_basis}/{total_in_orbit} faces chosen ({percentage:.1f}%)")
         print("-" * 50)
 
+
+def is_isomorphic(base1: list[tuple[int, int, int]], base2: list[tuple[int, int, int]], n: int) -> bool:
+    """
+    Determines if two bases of a 2-simplicial complex are structurally isomorphic 
+    under any vertex permutation in S_n.
+    
+    Parameters:
+    ----------
+    base1, base2 : list of tuple[int, int, int]
+        The two bases containing face triplets. Vertices are 0-indexed integers.
+    n : int
+        The total number of vertices in the complex (K_n).
+        
+    Returns:
+    -------
+    bool
+        True if an isomorphic vertex mapping exists, False otherwise.
+    """
+    # 1. Quick Structural Invariant Check: Vertex Degree Distributions
+    # Count how many faces each vertex participates in for both bases
+    deg1 = Counter(v for face in base1 for v in face)
+    deg2 = Counter(v for face in base2 for v in face)
+    
+    # Pad missing vertices that might have a degree of 0
+    deg1_seq = sorted([deg1[v] for v in range(n)])
+    deg2_seq = sorted([deg2[v] for v in range(n)])
+    
+    if deg1_seq != deg2_seq:
+        return False
+
+    # 2. Group vertices by degree to prune the permutation search space
+    # We only map a vertex in base1 to a vertex in base2 if they have the exact same degree
+    v1_by_deg = {}
+    v2_by_deg = {}
+    for v in range(n):
+        d1, d2 = deg1[v], deg2[v]
+        v1_by_deg.setdefault(d1, []).append(v)
+        v2_by_deg.setdefault(d2, []).append(v)
+        
+    # Canonicalize and sort base2 for O(log K) lookups via set casting
+    set_base2 = {tuple(sorted(face)) for face in base2}
+    
+    # Extract structural categories sorted by rarest degrees first to fail-fast
+    sorted_degrees = sorted(v1_by_deg.keys(), key=lambda d: len(v1_by_deg[d]))
+    
+    # Generate valid matching permutations per degree partition block
+    block_permutations = []
+    for deg in sorted_degrees:
+        target_v1 = v1_by_deg[deg]
+        target_v2 = v2_by_deg[deg]
+        # Generate all ways to map target_v1 onto target_v2
+        perms = [dict(zip(target_v1, p)) for p in itertools.permutations(target_v2)]
+        block_permutations.append(perms)
+        
+    # 3. Evaluate candidate mappings
+    # Product combining the permutations of each degree block into a global mapping dictionary
+    for block_comb in itertools.product(*block_permutations):
+        # Merge local block dictionaries into a unified global vertex mapping
+        mapping = {}
+        for d_map in block_comb:
+            mapping.update(d_map)
+            
+        # Transform base1 faces using the current candidate permutation map
+        mapped_base1 = set()
+        for face in base1:
+            mapped_face = tuple(sorted((mapping[face[0]], mapping[face[1]], mapping[face[2]])))
+            mapped_base1.add(mapped_face)
+            
+        # If the transformed set perfectly matches base2, an isomorphism is proven
+        if mapped_base1 == set_base2:
+            return True
+            
+    return False
+
 if __name__ == "__main__":
     """
     num_vertices = 8
@@ -202,10 +284,72 @@ if __name__ == "__main__":
     indexed_base = from_readable_to_indices(8, base)
     print(f"Indexed base: {indexed_base}")
     """
+    """
     n= 8
-    indexed_base = [4, 5, 7, 9, 12, 13, 15, 19, 21, 24, 26, 27, 32, 33, 39, 42, 44, 47, 51, 52, 55]
-    redable_base = from_indices_to_readable(n, indexed_base)
-    iso_class_size = calculate_isomorphism_class_size(n, redable_base)
-    print(math.factorial(n))
-    print(f"Size of isomorphism class: {iso_class_size}")
-    analyze_base_orbits(n, indexed_base)
+    indexed_base_2 = [1, 4, 7, 10, 12, 15, 18, 20, 22, 23, 29, 31, 34, 38, 39, 43, 44, 46, 47, 53, 54]
+    indexed_base_1 = [1, 2, 8, 10, 12, 14, 16, 20, 22, 23, 28, 32, 34, 35, 38, 39, 41, 46, 48, 52, 55]
+    indexed_base_3 = [1, 5, 6, 8, 15, 16, 17, 18, 22, 23, 26, 28, 33, 35, 38, 41, 42, 44, 46, 50, 51]
+    iso_1_2 = is_isomorphic(from_indices_to_readable(n, indexed_base_2), from_indices_to_readable(n, indexed_base_1), n)
+    print(f"Are the two bases isomorphic? {iso_1_2}")
+    iso_2_3 = is_isomorphic(from_indices_to_readable(n, indexed_base_2), from_indices_to_readable(n, indexed_base_3), n)
+    print(f"Is the second base isomorphic to itself? {iso_2_3}")
+    iso_1_3 = is_isomorphic(from_indices_to_readable(n, indexed_base_1), from_indices_to_readable(n, indexed_base_3), n)
+    print(f"Is the first base isomorphic to itself? {iso_1_3}")
+    
+    readable_base_1 = from_indices_to_readable(n, indexed_base_1)
+    print("base 1:")
+    iso_class_size_1 = calculate_isomorphism_class_size(n, readable_base_1)
+    print(f"Size of isomorphism class: {iso_class_size_1}")
+    degrees = calculate_degrees(n, readable_base_1)
+    print("Degrees of edges in the base hypertree:")    
+    for edge, degree in degrees.items():
+        print(f"Edge {edge}: Degree {degree}")
+    v_degs = calculate_vertices_degrees(n, readable_base_1)
+    print("Degree of vertices in the hypertree")
+    for i,degree in v_degs.items():
+        print(f"Vertex {i}: Degree {degree}")
+
+
+    readable_base_2 = from_indices_to_readable(n, indexed_base_2)
+    print("base 2:")
+    iso_class_size_2 = calculate_isomorphism_class_size(n, readable_base_2)
+    print(f"Size of isomorphism class: {iso_class_size_2}")
+    degrees = calculate_degrees(n, readable_base_2)
+    print("Degrees of edges in the base hypertree:")    
+    for edge, degree in degrees.items():
+        print(f"Edge {edge}: Degree {degree}")
+    v_degs = calculate_vertices_degrees(n, readable_base_2)
+    print("Degree of vertices in the hypertree")
+    for i,degree in v_degs.items():
+        print(f"Vertex {i}: Degree {degree}")
+
+    
+    
+    readable_base_3 = from_indices_to_readable(n, indexed_base_3)
+    print("base 3:")
+    iso_class_size_3 = calculate_isomorphism_class_size(n, readable_base_3)
+    print(f"Size of isomorphism class: {iso_class_size_3}")
+    degrees = calculate_degrees(n, readable_base_3)
+    print("Degrees of edges in the base hypertree:")    
+    for edge, degree in degrees.items():
+        print(f"Edge {edge}: Degree {degree}")
+    v_degs = calculate_vertices_degrees(n, readable_base_3)
+    print("Degree of vertices in the hypertree")
+    for i,degree in v_degs.items():
+        print(f"Vertex {i}: Degree {degree}")
+    """
+    n= 7
+    best_base = [(0, 1, 3), (0, 1, 4), (0, 2, 5), (0, 2, 6), (0, 3, 5), (0, 4, 5), (0, 4, 6), (1, 2, 4), (1, 2, 5),
+ (1, 2, 6), (1, 3, 6), (2, 3, 4), (2, 3, 5), (3, 4, 6), (3, 5, 6)]
+    m = 5
+    base =[(0, 1, 2), (0, 1, 3), (0, 1, 4), (0, 2, 3), (1, 2, 4), (2, 3, 4)] 
+    degrees = calculate_degrees(m, base)
+    for edge in degrees:
+        print(f"{edge}: {degrees[edge]}")   
+    v_deg = calculate_vertices_degrees(m, base)
+    for i in range(m):
+        print(f"{i} : {v_deg[i]}") 
+    
+
+
+    

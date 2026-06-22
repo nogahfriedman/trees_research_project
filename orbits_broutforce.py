@@ -138,18 +138,26 @@ def evaluate_basis_score(M: np.ndarray, basis_indices: list[int], non_basis_indi
     return (nonzero_counts / len(non_basis_indices)) + 1.0
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. PARALLEL CHUNK WORKER
+# 3. PARALLEL CHUNK WORKER WITH PRECISE PERCENTAGE TRACKING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def isomorphism_reduced_worker(args) -> tuple[float, list[list[int]]]:
+def isomorphism_reduced_worker(args) -> tuple[float, list[list[int]], int]:
     """
     Processes a localized pool segment containing pre-filtered non-isomorphic configurations.
+    Tracks internal progress against the absolute chunk capacity.
     """
-    (M, total_faces, fixed_orbit_1_and_2, remaining_filtered_pools) = args
+    (M, total_faces, fixed_orbit_1_and_2, remaining_filtered_pools, worker_id, total_chunks) = args
     all_face_indices = set(range(total_faces))
     
     local_max = -1.0
     local_best = []
+    evaluated_count = 0
+    
+    # Calculate exact total iterations assigned to THIS specific worker chunk
+    # For [4, 4, 5, 3, 5] profile: 560 * 8 * 8 = 35,840 combinations
+    chunk_total = 1
+    for pool in remaining_filtered_pools:
+        chunk_total *= len(pool)
     
     # Iterate across pre-filtered combinations of orbits 3, 4, and 5
     for remaining_combined in itertools.product(*remaining_filtered_pools):
@@ -157,7 +165,12 @@ def isomorphism_reduced_worker(args) -> tuple[float, list[list[int]]]:
         non_basis = sorted(list(all_face_indices - set(basis_candidate)))
         
         score = evaluate_basis_score(M, basis_candidate, non_basis)
+        evaluated_count += 1
         
+        # Print status once halfway through, and once when the chunk finishes
+        if evaluated_count == chunk_total // 2:
+            print(f" [Task {worker_id+1:04d}/{total_chunks:,}] Halfway done! Checked {evaluated_count:,} / {chunk_total:,} (50%) | Local max: {local_max:.6f}")
+            
         if score > 0:
             if score > local_max:
                 local_max = score
@@ -165,7 +178,7 @@ def isomorphism_reduced_worker(args) -> tuple[float, list[list[int]]]:
             elif np.abs(score - local_max) < 1e-9:
                 local_best.append(basis_candidate)
                 
-    return local_max, local_best
+    return local_max, local_best, evaluated_count
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. EXECUTION COORDINATOR
@@ -203,29 +216,35 @@ def run_isomorphism_reduced_search(n: int, target_profile: list[int], num_proces
         reduced_total_space *= len(pool)
         
     print(f"------------------------------------------------------------")
-    print(f"REDUCED COMBINATORIAL SPACE: {reduced_total_space:,} iterations (Down from 1,744,363,008!)")
+    print(f"TOTAL REDUCED SEARCH SPACE : {reduced_total_space:,} combinations")
     print(f"------------------------------------------------------------\n")
     
-    # Construct task chunks using a combination of Orbit 1 and Orbit 2 to distribute across 10 processes
+    # Construct task chunks using a combination of Orbit 1 and Orbit 2
     orbit_1_and_2_product = list(itertools.product(filtered_pools[0], filtered_pools[1]))
     remaining_pools = filtered_pools[2:]  # Pools for Orbits 3, 4, 5
+    total_chunks = len(orbit_1_and_2_product)
     
+    # Package work arrays with tracking tokens and global boundaries
     worker_tasks = [
-        (M, total_faces, list(itertools.chain(*chunk)), remaining_pools)
-        for chunk in orbit_1_and_2_product
+        (M, total_faces, list(itertools.chain(*chunk)), remaining_pools, idx, total_chunks)
+        for idx, chunk in enumerate(orbit_1_and_2_product)
     ]
     
-    print(f"Dispatching task arrays across {num_processes} CPU cores...")
+    print(f"Dispatching {total_chunks:,} parallel task batches across {num_processes} CPU cores...")
+    print(f"Each batch will compute exactly {reduced_total_space // total_chunks:,} combinations.")
+    print(f"Tracking logs will stream below:\n")
     t_calc = time.time()
     
     with mp.Pool(processes=num_processes) as pool:
         results = pool.map(isomorphism_reduced_worker, worker_tasks)
         
-    # Collate outputs
+    print(f"\nCollating final matrix outputs from worker processes...")
     global_max = -1.0
     global_best_bases = []
+    completed_evals = 0
     
-    for local_max, local_bases in results:
+    for local_max, local_bases, evals_run in results:
+        completed_evals += evals_run
         if local_max > global_max:
             global_max = local_max
             global_best_bases = local_bases
@@ -238,20 +257,29 @@ def run_isomorphism_reduced_search(n: int, target_profile: list[int], num_proces
     print(f"============================================================")
     print(f"Total Filtering + Compute Time : {total_time:.2f} seconds")
     print(f"Calculation Phase Runtime       : {time.time() - t_calc:.2f} seconds")
+    print(f"Total Verified Candidates       : {completed_evals:,} / {reduced_total_space:,} (100.0%)")
+    print(f"Average Execution Throughput    : {completed_evals / (time.time() - t_calc):,.0f} evals/sec")
     print(f"Absolute Max Average Cycle Size : {global_max:.6f}")
     print(f"Total Optimal Bases Discovered : {len(global_best_bases)}")
     print(f"============================================================")
     
     return global_max, global_best_bases
 
-
 if __name__ == "__main__":
+    # The orbit distribution profile vector you want to test
+    # This vector specifies how many faces to choose from each of the 5 orbits.
+    # For n=8, the sum must equal the matrix rank, which is exactly 21.
     PROFILE_VECTOR = [4, 4, 5, 3, 5]
+    
+    # Total number of vertices in your simplicial complex
     VERTICES = 8
+    
+    # Number of parallel CPU cores you want to utilize. 
     CORES = 10
     
+    # Launch the parallelized, isomorphism-reduced brute force search
     max_score, best_bases = run_isomorphism_reduced_search(
         n=VERTICES, 
         target_profile=PROFILE_VECTOR, 
-        num_processes=10
+        num_processes=CORES
     )

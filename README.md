@@ -6,7 +6,7 @@ why in 6 the size is always 11 in the best case
 n=k(k+1)?
 
 what to learn for advanced searching?
-more computational force -> more efficient implemetation with random walksin the metroid cycle space
+more computational force -> more efficient implemetation with random walk in the metroid cycle space
 
 read until 110p in hatcher, learned Homology!
 
@@ -14,7 +14,12 @@ is n path includes n-1 path? no!
 
 cheking small n's
 
+Metroids
 
+
+Meet with Natty 11.6:
+look on links of vertex.
+is there graph that without tetrheader
 
 
 implametations:

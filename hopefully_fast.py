@@ -414,9 +414,9 @@ def benchmark(n: int = 6, trials: int = 10_000, kind: Optional[str] = "defuolt")
 
 if __name__ == "__main__":
     t_tic = time.time()
-    n = 8
+    n = 9
     trials = 1_000_000
-    repeat = 30
+    repeat = 5
     print("\n" + "="*55)
     print(f"FULL RUN  n={n}, {trials} trials repeats {repeat} times")
     print("="*55)
